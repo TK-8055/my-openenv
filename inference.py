@@ -1,75 +1,35 @@
 import requests
 
-
 BASE_URL = "http://localhost:8000"
-CONTEXT_KEYWORDS = {
-    "sports": "injury",
-    "student": "exam",
-    "doctor": "critical",
-}
-
-
-def choose_action(state: dict) -> int:
-    """Pick the unfinished task with the best priority-vs-urgency tradeoff."""
-    best_action = 3
-    best_score = float("-inf")
-    context = state.get("context", "")
-    context_keyword = CONTEXT_KEYWORDS.get(context, "")
-
-    for i, task in enumerate(state.get("tasks", [])):
-        if task.get("done", False):
-            continue
-        score = task.get("priority", 0) - task.get("deadline", 0)
-        if context_keyword and context_keyword in task.get("title", "").lower():
-            score += 2
-        if score > best_score:
-            best_score = score
-            best_action = i
-
-    return best_action
-
 
 def main():
-    print("[START]", flush=True)
+    print("[START]")
 
-    try:
-        reset_payload = requests.post(f"{BASE_URL}/reset", timeout=10).json()
-    except Exception as e:
-        print(f"[END] error=reset_failed {e}", flush=True)
-        return
+    state = requests.post(f"{BASE_URL}/reset").json().get("observation", {})
 
-    state = reset_payload.get("observation", reset_payload)
-    step_count = 0
+    for i in range(5):
+        tasks = state.get("tasks", [])
 
-    while step_count < 10:
-        action = choose_action(state)
+        action = 0
+        best = -999
 
-        try:
-            response = requests.post(
-                f"{BASE_URL}/step",
-                json={"action": action},
-                timeout=10,
-            ).json()
-        except Exception as e:
-            print(f"[STEP] error=step_failed {e}", flush=True)
+        for i, t in enumerate(tasks):
+            if not t.get("done"):
+                score = t["priority"] - t["deadline"]
+                if score > best:
+                    best = score
+                    action = i
+
+        res = requests.post(f"{BASE_URL}/step", json={"action": action}).json()
+
+        print(f"[STEP] action={action} reward={res.get('reward')}")
+
+        state = res.get("observation", {})
+
+        if res.get("done"):
             break
 
-        reward = response.get("reward", 0.0)
-        note = response.get("observation", {}).get("decision_summary", "")
-        print(
-            f"[STEP] step={step_count} action={action} reward={reward} note={note}",
-            flush=True,
-        )
-
-        state = response.get("observation", response.get("state", {}))
-
-        if response.get("done", False):
-            break
-
-        step_count += 1
-
-    print("[END]", flush=True)
-
+    print("[END]")
 
 if __name__ == "__main__":
     main()
