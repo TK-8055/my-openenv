@@ -1,104 +1,171 @@
----
-title: Context-Aware Task Scheduling Environment
-emoji: 🧠
-colorFrom: blue
-colorTo: green
-sdk: docker
-pinned: false
-app_port: 8000
-base_path: /web
-tags:
-  - openenv
-  - reinforcement-learning
-  - scheduling
----
-
 # Context-Aware Task Scheduling Environment
 
-## What This Project Does
+A small OpenEnv environment where an agent chooses the best next task based on context, priority, and urgency.
 
-This project builds a small RL-style environment where an agent must decide which task to do next.
-The key challenge is that tasks have different priorities and deadlines, and the "best" choice depends on context (`student`, `doctor`, or `sports`).
+## Overview
 
-I designed it to mimic everyday planning decisions: do the urgent important item first, avoid wasting steps, and adapt behavior based on difficulty.
+This project simulates real-world task selection in three scenarios:
 
-## Problem Framing
+- `student`
+- `doctor`
+- `sports`
 
-At each step, the agent answers one question:
-**"Which action gives the best outcome right now?"**
+At each step, the agent chooses one of three tasks or skips. The environment returns:
 
-Actions:
-- `0`, `1`, `2`: choose one of the three tasks
+- the updated observation
+- a reward
+- an explanation of why the action was good or bad
+
+We use a composite scoring heuristic combining priority, context relevance, and urgency. We explicitly model deadline pressure to simulate urgency. We don't just reward actions, we explain them, making the system interpretable.
+
+## Action Space
+
+- `0`, `1`, `2`: choose one of the available tasks
 - `3`: skip
 
-## Observation and Reward
+API example:
 
-Each observation contains:
-- current context
-- difficulty level (`easy`, `medium`, `hard`)
-- three tasks (`title`, `priority`, `deadline`, `done`)
-- current time and steps remaining
-- recommended action with a short explanation
-- decision summary from the previous step
+```json
+{
+  "action": 1
+}
+```
 
-Reward range is always `[0.0, 1.0]`:
-- `1.0`: optimal choice
-- `0.5`: reasonable but not best
-- `0.1`: valid skip (only when skipping is actually appropriate)
-- `0.0`: poor choice
+## Observation
 
-## Difficulty Logic
+Each observation includes:
 
-- `easy`: any unfinished task is acceptable
-- `medium`: reward mostly follows priority
-- `hard`: reward depends on both urgency (deadline pressure) and importance (priority + context match)
+- current `context`
+- current `difficulty`
+- `tasks` with title, priority, deadline, and completion status
+- current `time`
+- `steps_remaining`
+- `recommended_action`
+- `score_explanation`
+- `decision_summary`
+- `metadata.deadline_pressure`
+- `metadata.comparison` with chosen vs recommended action
 
-## Local Run
+## Reward Logic
 
-From this folder:
+Reward is always in `[0.0, 1.0]`.
+
+- `1.0`: optimal action
+- `0.5`: acceptable but not best action in easier settings
+- `0.1`: valid skip when all tasks are complete
+- `0.0`: poor action
+
+Difficulty affects strictness:
+
+- `easy`: any unfinished task is partly acceptable
+- `medium`: better task quality matters more
+- `hard`: only the best action earns full reward
+
+## RL Loop
+
+```text
+State -> Agent -> Action -> Reward -> Next State
+```
+
+## Example
+
+```text
+context = "doctor"
+tasks = [
+  {"title": "critical patient review", "priority": 5, "deadline": 1, "done": false},
+  {"title": "follow-up rounds", "priority": 3, "deadline": 3, "done": false},
+  {"title": "paperwork", "priority": 1, "deadline": 5, "done": false}
+]
+
+recommended_action = 0
+action = 0
+reward = 1.0
+```
+
+Why: the selected task matches the doctor context and has the strongest priority/deadline tradeoff.
+
+## Project Structure
+
+```text
+my_env/
+├── client.py
+├── inference.py
+├── models.py
+├── pyproject.toml
+├── server/
+│   ├── app.py
+│   ├── my_env_environment.py
+│   └── requirements.txt
+└── tests/
+    └── test_environment.py
+```
+
+## Run Locally
+
+If `uv` is installed:
 
 ```bash
-uv sync
+cd /home/tk/Desktop/hack/my_env
+uv sync --extra dev
 uv run --project . server
 ```
 
-Server docs:
+Then open:
 
 ```text
 http://localhost:8000/docs
 ```
 
-Run baseline inference in another terminal:
+If `uv` is not installed, use the existing virtual environment:
 
 ```bash
-uv run --project . python inference.py
+cd /home/tk/Desktop/hack/my_env
+.venv/bin/python -m server.app
 ```
 
-Run tests:
+## Run Inference
+
+In a second terminal:
 
 ```bash
+cd /home/tk/Desktop/hack/my_env
+.venv/bin/python inference.py
+```
+
+## Run Tests
+
+With `uv`:
+
+```bash
+cd /home/tk/Desktop/hack/my_env
+uv sync --extra dev
 uv run --project . pytest
 ```
 
-## Deployment
+Without `uv`:
 
 ```bash
-openenv push --repo-id your-username/my-env
+cd /home/tk/Desktop/hack/my_env
+.venv/bin/python -m pip install pytest pytest-cov
+.venv/bin/python -m pytest
 ```
 
-Then submit the generated Space URL.
+## API Notes
 
-## File Guide
+- `POST /reset` starts a new episode
+- `POST /step` expects a plain integer field like `{ "action": 0 }`
+- `GET /docs` provides the Swagger UI
 
-- `server/my_env_environment.py`: environment dynamics and scoring logic
-- `server/app.py`: FastAPI/OpenEnv app entrypoint
-- `models.py`: action/observation schemas
-- `client.py`: client parser/wrapper
-- `inference.py`: simple baseline policy script
-- `tests/test_environment.py`: basic validation tests
+## Current Strengths
 
-## Current Limitations
+- interpretable reward explanations
+- context-aware scheduling logic
+- deadline pressure modeling
+- recommended vs chosen action comparison
+- baseline inference policy aligned with environment scoring
 
-- Baseline policy is rule-based, not learned.
-- Task templates are fixed-size (3 tasks per episode).
-- No long-horizon memory across episodes.
+## Limitations
+
+- rule-based baseline, not a learned policy
+- fixed task count per episode
+- no long-term memory across episodes

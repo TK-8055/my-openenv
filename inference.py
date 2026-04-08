@@ -2,17 +2,26 @@ import requests
 
 
 BASE_URL = "http://localhost:8000"
+CONTEXT_KEYWORDS = {
+    "sports": "injury",
+    "student": "exam",
+    "doctor": "critical",
+}
 
 
 def choose_action(state: dict) -> int:
     """Pick the unfinished task with the best priority-vs-urgency tradeoff."""
     best_action = 3
     best_score = float("-inf")
+    context = state.get("context", "")
+    context_keyword = CONTEXT_KEYWORDS.get(context, "")
 
     for i, task in enumerate(state.get("tasks", [])):
         if task.get("done", False):
             continue
         score = task.get("priority", 0) - task.get("deadline", 0)
+        if context_keyword and context_keyword in task.get("title", "").lower():
+            score += 2
         if score > best_score:
             best_score = score
             best_action = i

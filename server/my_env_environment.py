@@ -73,6 +73,7 @@ class MyEnvironment(Environment):
             reward=0.0,
             done=False,
             decision_summary="Environment reset. Choose the best unfinished task.",
+            chosen_index=None,
         )
 
     def step(self, action: MyAction) -> MyObservation:  # type: ignore[override]
@@ -91,7 +92,6 @@ class MyEnvironment(Environment):
                     chosen_task=chosen_task,
                     reward=reward,
                     recommended_index=recommended_index,
-                    skipped=False,
                 )
             else:
                 decision_summary = (
@@ -107,16 +107,23 @@ class MyEnvironment(Environment):
 
         self.time += 1
         done = all(task.done for task in self.tasks) or self.time >= self.MAX_TIME
+        if done:
+            decision_summary += f" | Episode finished in {self.time} steps."
         return self._build_observation(
             reward=reward,
             done=done,
             decision_summary=decision_summary,
+            chosen_index=chosen_index,
         )
 
     def _build_observation(
-        self, reward: float, done: bool, decision_summary: str
+        self,
+        reward: float,
+        done: bool,
+        decision_summary: str,
+        chosen_index: int | None,
     ) -> MyObservation:
-        recommended_action = self._recommended_action()
+        recommended_action = self._best_task()
         return MyObservation(
             context=self.context,
             difficulty=self.difficulty,
@@ -133,10 +140,17 @@ class MyEnvironment(Environment):
                 "deadline_pressure": [
                     max(0, task.deadline - self.time) for task in self.tasks
                 ],
+                "comparison": {
+                    "chosen": chosen_index,
+                    "recommended": recommended_action,
+                },
             },
         )
 
     def _recommended_action(self) -> int:
+        return self._best_task()
+
+    def _best_task(self) -> int:
         available = [
             (index, task) for index, task in enumerate(self.tasks) if not task.done
         ]
@@ -187,26 +201,30 @@ class MyEnvironment(Environment):
             return 0.5
 
         if self.difficulty == "medium":
-            return 0.5 if self._task_score(chosen_task, prioritize_deadline=False) >= 4 else 0.0
+            return (
+                0.5
+                if self._task_score(chosen_task, prioritize_deadline=False) >= 4
+                else 0.0
+            )
 
-        if self._task_score(chosen_task, prioritize_deadline=True) >= 6:
-            return 0.5
         return 0.0
 
     def _decision_summary(
-        self, chosen_task: Task, reward: float, recommended_index: int, skipped: bool
+        self, chosen_task: Task, reward: float, recommended_index: int
     ) -> str:
         keyword = self.CONTEXT_KEYWORDS[self.context]
         context_match = keyword in chosen_task.title.lower()
         if reward == 1.0:
             return (
-                f"Chose '{chosen_task.title}' and earned full reward because it fits the "
-                f"{self.context} context and current priority/deadline needs."
+                f"Chose '{chosen_task.title}' because it matches the {self.context} "
+                f"context and best balances priority {chosen_task.priority} with "
+                f"deadline {chosen_task.deadline}, earning full reward."
             )
         if reward == 0.5:
             return (
-                f"Chose '{chosen_task.title}', which was reasonable but not optimal for "
-                f"the {self.context} scenario."
+                f"Chose '{chosen_task.title}' because it was a reasonable option for "
+                f"the {self.context} context, with priority {chosen_task.priority} "
+                f"and deadline {chosen_task.deadline}, but it was not the top move."
             )
         best_title = (
             self.tasks[recommended_index].title
@@ -215,12 +233,14 @@ class MyEnvironment(Environment):
         )
         if context_match:
             return (
-                f"Chose '{chosen_task.title}', but '{best_title}' was still the stronger move "
-                f"for this {self.context} step."
+                f"Chose '{chosen_task.title}' because it fit the {self.context} "
+                f"context, but '{best_title}' had the stronger priority/deadline "
+                f"tradeoff for this step."
             )
         return (
-            f"Chose '{chosen_task.title}', which did not align well with the {self.context} "
-            f"context. '{best_title}' would have been better."
+            f"Chose '{chosen_task.title}', but missed a better option due to lower "
+            f"priority or urgency. '{best_title}' was stronger for the {self.context} "
+            f"context with a better priority/deadline tradeoff."
         )
 
     def _task_score(self, task: Task, prioritize_deadline: bool) -> int:
@@ -243,15 +263,21 @@ class MyEnvironment(Environment):
         keyword = self.CONTEXT_KEYWORDS[self.context]
         context_bonus = keyword in task.title.lower()
         if self.difficulty == "easy":
-            return f"Any unfinished task works in easy mode, and '{task.title}' is next."
+            return (
+                f"Easy mode accepts any unfinished task, and '{task.title}' is the next "
+                f"recommended option with priority {task.priority} and deadline {task.deadline}."
+            )
         if self.difficulty == "medium":
-            reason = f"Medium mode favors higher priority tasks, so '{task.title}' wins with priority {task.priority}."
+            reason = (
+                f"Medium mode favors stronger priority, so '{task.title}' is recommended "
+                f"with priority {task.priority} and deadline {task.deadline}."
+            )
             if context_bonus:
                 reason += f" It also matches the {self.context} context."
             return reason
         return (
             f"Hard mode balances urgency and importance, so '{task.title}' is best "
-            f"with deadline {task.deadline} at time {self.time}."
+            f"with priority {task.priority}, deadline {task.deadline}, and time {self.time}."
             + (f" It also directly fits the {self.context} scenario." if context_bonus else "")
         )
 
