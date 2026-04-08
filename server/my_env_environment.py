@@ -42,8 +42,17 @@ class MyEnvironment(Environment):
         self.time = 0
         self.reset()
 
-    def reset(self) -> MyObservation:
+    def reset(
+        self,
+        seed: int | None = None,
+        episode_id: str | None = None,
+        **kwargs,
+    ) -> MyObservation:
+        if seed is not None:
+            self._rng.seed(seed)
         self._state = State(episode_id=str(uuid4()), step_count=0)
+        if episode_id is not None:
+            self._state.episode_id = episode_id
         self.context = self._rng.choice(self.CONTEXTS)
         self.difficulty = self._rng.choice(self.DIFFICULTIES)
         task_titles = self.TASK_LIBRARY[self.context]
@@ -69,11 +78,18 @@ class MyEnvironment(Environment):
             ),
         ]
         self.time = 0
-        return self._build_observation(
-            reward=0.0,
+        return MyObservation(
+            context=self.context,
+            difficulty=self.difficulty,
+            tasks=self.tasks,
+            time=0,
+            steps_remaining=self.MAX_TIME,
+            recommended_action=0,
+            score_explanation="",
+            decision_summary="",
+            reward=None,
             done=False,
-            decision_summary="Environment reset. Choose the best unfinished task.",
-            chosen_index=None,
+            metadata={},
         )
 
     def step(self, action: MyAction) -> MyObservation:  # type: ignore[override]
