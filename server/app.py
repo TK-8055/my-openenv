@@ -24,6 +24,11 @@ app = create_app(
 )
 
 
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+
 def main(host: str = "0.0.0.0", port: int = 7860) -> None:
     """Run the local development server."""
     import uvicorn
