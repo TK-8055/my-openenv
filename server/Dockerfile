@@ -70,6 +70,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Set PYTHONPATH so imports work correctly
 ENV PYTHONPATH="/app/env:$PYTHONPATH"
+ENV PORT=7860
 
 EXPOSE 7860
 
