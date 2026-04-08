@@ -127,7 +127,7 @@ class MyEnvironment(Environment):
         return MyObservation(
             context=self.context,
             difficulty=self.difficulty,
-            tasks=[task.model_copy(deep=True) for task in self.tasks],
+            tasks=self.tasks,
             time=self.time,
             steps_remaining=max(0, self.MAX_TIME - self.time),
             recommended_action=recommended_action,
@@ -141,7 +141,7 @@ class MyEnvironment(Environment):
                     max(0, task.deadline - self.time) for task in self.tasks
                 ],
                 "comparison": {
-                    "chosen": chosen_index,
+                    "chosen": chosen_index if chosen_index is not None else -1,
                     "recommended": recommended_action,
                 },
             },
