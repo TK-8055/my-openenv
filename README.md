@@ -4,6 +4,7 @@ emoji: 🤖
 colorFrom: blue
 colorTo: green
 sdk: docker
+app_port: 7860
 app_file: server/app.py
 pinned: false
 ---
@@ -123,14 +124,14 @@ uv run --project . server
 Then open:
 
 ```text
-http://localhost:8000/docs
+http://localhost:7860/docs
 ```
 
 If `uv` is not installed, use the existing virtual environment:
 
 ```bash
 cd /home/tk/Desktop/hack/my_env
-.venv/bin/python -m server.app
+.venv/bin/python -m server.app --port 7860
 ```
 
 ## Run Inference
