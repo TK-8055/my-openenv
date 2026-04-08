@@ -1,3 +1,13 @@
+---
+title: My Env
+emoji: 🤖
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_file: server/app.py
+pinned: false
+---
+
 # Context-Aware Task Scheduling Environment
 
 A small OpenEnv environment where an agent chooses the best next task based on context, priority, and urgency.
