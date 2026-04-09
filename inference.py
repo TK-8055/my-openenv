@@ -4,6 +4,7 @@ import re
 from typing import Optional
 
 from openai import OpenAI
+from openenv.core.containers.runtime.uv_provider import UVProvider
 
 try:
     from .client import MyEnv
@@ -16,10 +17,11 @@ except ImportError:
 API_KEY = os.environ["API_KEY"]
 API_BASE_URL = os.environ["API_BASE_URL"]
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-LOCAL_IMAGE_NAME = os.environ["LOCAL_IMAGE_NAME"]
-TASK_NAME = os.getenv("TASK_NAME", "task-scheduling")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 BENCHMARK = os.getenv("BENCHMARK", "my_env")
+TASKS = ["task-scheduling", "task-priority", "task-deadline"]
 MAX_STEPS = 10
+PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -74,6 +76,18 @@ def create_openai_client() -> OpenAI:
     return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 
+async def create_env():
+    if LOCAL_IMAGE_NAME:
+        return await MyEnv.from_docker_image(LOCAL_IMAGE_NAME)
+
+    provider = UVProvider(project_path=PROJECT_PATH)
+    base_url = provider.start()
+    provider.wait_for_ready()
+    env = MyEnv(base_url=base_url, provider=provider)
+    await env.connect()
+    return env
+
+
 def smoke_test_llm(client: OpenAI) -> None:
     try:
         client.chat.completions.create(
@@ -112,58 +126,83 @@ def choose_action(client: OpenAI, observation) -> int:
     return int(match.group(1))
 
 
+def normalize_score(rewards: list[float]) -> float:
+    if not rewards:
+        return 0.01
+
+    score = sum(rewards) / len(rewards)
+    if score <= 0.0:
+        return 0.01
+    if score >= 1.0:
+        return 0.99
+    return score
+
+
 async def main() -> None:
     client = create_openai_client()
     env = None
-    rewards: list[float] = []
-    steps_taken = 0
-    success = False
-    score = 0.0
-
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    emitted_logs = False
 
     try:
         smoke_test_llm(client)
-        env = await MyEnv.from_docker_image(LOCAL_IMAGE_NAME)
-        result = await env.reset()
+        env = await create_env()
 
-        while steps_taken < MAX_STEPS:
-            if result.done:
-                break
+        for episode_index, task_name in enumerate(TASKS, start=1):
+            rewards: list[float] = []
+            steps_taken = 0
+            success = False
+            score = 0.01
 
-            step_number = steps_taken + 1
-            action_value = choose_action(client, result.observation)
-            result = await env.step(MyAction(action=action_value))
+            try:
+                result = await env.reset(seed=episode_index)
+                log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+                emitted_logs = True
 
-            reward = float(result.reward or 0.0)
-            done = bool(result.done)
-            rewards.append(reward)
-            steps_taken = step_number
+                while steps_taken < MAX_STEPS:
+                    if result.done:
+                        break
 
-            log_step(
-                step=step_number,
-                action=str(action_value),
-                reward=reward,
-                done=done,
-                error=None,
-            )
+                    step_number = steps_taken + 1
+                    action_value = choose_action(client, result.observation)
+                    result = await env.step(MyAction(action=action_value))
 
-            if done:
-                break
+                    reward = float(result.reward or 0.0)
+                    done = bool(result.done)
+                    rewards.append(reward)
+                    steps_taken = step_number
 
-        if rewards:
-            score = sum(rewards) / len(rewards)
-        score = max(0.0, min(1.0, score))
-        success = bool(rewards) and score > 0.0
+                    log_step(
+                        step=step_number,
+                        action=str(action_value),
+                        reward=reward,
+                        done=done,
+                        error=None,
+                    )
+
+                    if done:
+                        break
+
+                score = normalize_score(rewards)
+                success = True
+            except Exception:
+                success = False
+            finally:
+                log_end(
+                    success=success,
+                    steps=steps_taken,
+                    score=score,
+                    rewards=rewards,
+                )
     except Exception:
-        success = False
+        if not emitted_logs:
+            log_start(task=TASKS[0], env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.01, rewards=[])
     finally:
         if env is not None:
             try:
                 await env.close()
             except Exception:
                 pass
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
