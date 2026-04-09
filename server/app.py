@@ -38,6 +38,38 @@ _request_windows: dict[str, deque[float]] = defaultdict(deque)
 @app.middleware("http")
 async def limit_reset_and_step_requests(request: Request, call_next):
     """Apply lightweight per-IP throttling for expensive environment calls."""
+    if request.method == "POST" and request.url.path == "/reset":
+        body = await request.body()
+        payload: dict | None = None
+        if body:
+            try:
+                decoded = json.loads(body)
+                if isinstance(decoded, dict):
+                    payload = decoded
+            except json.JSONDecodeError:
+                payload = None
+        if payload is None:
+            payload = {}
+
+        query_task = request.query_params.get("task")
+        query_task_name = request.query_params.get("task_name")
+        selected_task = query_task_name or query_task
+        if selected_task:
+            payload["task"] = selected_task
+            payload["task_name"] = selected_task
+
+        normalized_body = json.dumps(payload).encode("utf-8")
+
+        async def receive_reset() -> dict:
+            return {
+                "type": "http.request",
+                "body": normalized_body,
+                "more_body": False,
+            }
+
+        request._body = normalized_body
+        request._receive = receive_reset
+
     if request.method == "POST" and request.url.path == "/step":
         body = await request.body()
         if body:
