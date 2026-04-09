@@ -4,9 +4,15 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Context-aware task scheduling environment."""
+"""Student task scheduling environment."""
 
 from .client import MyEnv
+from .graders import (
+    GraderManager,
+    TaskDeadlineGrader,
+    TaskPriorityGrader,
+    TaskSchedulingGrader,
+)
 from .models import MyAction, MyObservation, Task
 
 __all__ = [
@@ -14,4 +20,8 @@ __all__ = [
     "MyObservation",
     "Task",
     "MyEnv",
+    "TaskSchedulingGrader",
+    "TaskPriorityGrader",
+    "TaskDeadlineGrader",
+    "GraderManager",
 ]
