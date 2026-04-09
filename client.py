@@ -6,7 +6,10 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import MyAction, MyObservation, Task
+try:
+    from .models import MyAction, MyObservation, Task
+except ImportError:
+    from models import MyAction, MyObservation, Task
 
 
 class MyEnv(EnvClient[MyAction, MyObservation, State]):
