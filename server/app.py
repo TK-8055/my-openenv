@@ -444,7 +444,10 @@ def _homepage_html() -> str:
       state.rewards = [];
       logBox.textContent = "Resetting environment...";
       try {
-        const payload = await callApi("/reset", { task: difficultySel.value });
+        const payload = await callApi("/reset", {
+          task: difficultySel.value,
+          task_name: difficultySel.value
+        });
         render(payload);
       } catch (err) {
         state.done = true;

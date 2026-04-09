@@ -156,7 +156,11 @@ class MyEnvironment(Environment):
         self._state = State(episode_id=str(uuid4()), step_count=0)
         if episode_id is not None:
             self._state.episode_id = episode_id
-        self.task_mode = task if task in self.TASK_MODES else "task-scheduling"
+        selected_task = task or kwargs.get("task_name")
+        if isinstance(selected_task, str) and selected_task in self.TASK_MODES:
+            self.task_mode = selected_task
+        else:
+            self.task_mode = "task-scheduling"
         scenario = self.SCENARIOS[self.task_mode]
         self.context = str(scenario["context"])
         self.difficulty = scenario["difficulty"]  # type: ignore[assignment]

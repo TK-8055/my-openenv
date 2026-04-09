@@ -11,7 +11,7 @@ pinned: false
 
 # Student Task Scheduling Environment
 
-A small OpenEnv environment where an agent helps a student decide what to work on next when coursework, exams, and project deadlines compete for limited study time.
+Student Task Scheduler AI is a decision-making evaluation environment that tests how agents prioritize tasks under real-world time and deadline constraints.
 This environment evaluates decision-making under resource constraints, where agents must choose which tasks to sacrifice when full completion is impossible.
 
 ## Overview
@@ -187,6 +187,7 @@ cd /home/tk/Desktop/hack/my_env
 - interpretable reward explanations and scenario objectives
 - deadline pressure plus anti-loop behavior modeling
 - baseline inference policy aligned with environment scoring
+- forces agents to make tradeoffs rather than optimizing for full completion, aligning with real-world decision-making challenges
 
 ## Limitations
 
