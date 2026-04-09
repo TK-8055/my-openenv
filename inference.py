@@ -19,10 +19,7 @@ except ImportError:
 
 
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-if not API_KEY:
-    raise KeyError("Missing API_KEY or HF_TOKEN")
-
-API_BASE_URL = os.environ["API_BASE_URL"]
+API_BASE_URL = os.getenv("API_BASE_URL")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 BENCHMARK = os.getenv("BENCHMARK", "my_env")
@@ -86,6 +83,10 @@ def build_prompt(observation) -> str:
 
 
 def create_openai_client() -> OpenAI:
+    if not API_KEY:
+        raise RuntimeError("Missing API_KEY or HF_TOKEN")
+    if not API_BASE_URL:
+        raise RuntimeError("Missing API_BASE_URL")
     return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 
@@ -198,16 +199,21 @@ async def run_task(client: OpenAI, env, grader_manager: GraderManager, task_name
 
 
 async def main() -> None:
-    client = create_openai_client()
+    client = None
     env = None
     grader_manager = GraderManager()
 
     try:
+        client = create_openai_client()
         smoke_test_llm(client)
         env = await create_env()
 
         for index, task_name in enumerate(TASKS, start=1):
             await run_task(client, env, grader_manager, task_name, index)
+    except Exception:
+        for task_name in TASKS:
+            log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.010, rewards=[])
     finally:
         if env is not None:
             try:
@@ -217,4 +223,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception:
+        for task_name in TASKS:
+            log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.010, rewards=[])

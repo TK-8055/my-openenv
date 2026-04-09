@@ -167,6 +167,8 @@ cd /home/tk/Desktop/hack/my_env
 
 ## API Notes
 
+- `GET /` serves the interactive reviewer-friendly UI
+- `GET /status` returns a lightweight health payload: `{"status":"ok"}`
 - `POST /reset` starts a new episode
 - `POST /step` expects a plain integer field like `{ "action": 0 }`
 - `GET /docs` provides the Swagger UI
