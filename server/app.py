@@ -161,6 +161,12 @@ def _homepage_html() -> str:
       color: #244354;
       font-size: 0.92rem;
     }
+    .status-line {
+      margin-top: 10px;
+      font-size: 0.86rem;
+      color: #27566b;
+      font-weight: 700;
+    }
     .grid {
       display: grid;
       gap: 12px;
@@ -174,7 +180,7 @@ def _homepage_html() -> str:
       margin-bottom: 6px;
       color: #2b3a46;
     }
-    select, button {
+    select, input, button {
       width: 100%;
       border-radius: 11px;
       border: 1px solid #b6d6de;
@@ -183,7 +189,7 @@ def _homepage_html() -> str:
       background: #fff;
       color: #0f1720;
     }
-    select:focus, button:focus {
+    select:focus, input:focus, button:focus {
       outline: none;
       box-shadow: 0 0 0 4px var(--ring);
       border-color: var(--accent);
@@ -297,6 +303,7 @@ def _homepage_html() -> str:
       <div class="guide">
         <h2>How to give input</h2>
         <p>1. Select a <strong>Scenario</strong> (easy, medium, or hard), then click <strong>Start Episode</strong>.</p>
+        <p>Optional: set a <strong>Seed</strong> (number) for reproducible runs.</p>
         <p>2. Click one action button each step: <strong>Action 0/1/2</strong> = choose that task index, <strong>Action 3</strong> = Skip.</p>
         <p>3. Repeat actions until status shows <strong>Done</strong>. Use <strong>Recommended</strong>, <strong>Reward</strong>, and the decision log to understand good choices.</p>
       </div>
@@ -310,10 +317,15 @@ def _homepage_html() -> str:
           </select>
         </div>
         <div>
+          <label for="seedInput">Seed (optional)</label>
+          <input id="seedInput" type="number" min="0" step="1" placeholder="e.g. 42" />
+        </div>
+        <div>
           <label>&nbsp;</label>
           <button id="resetBtn">Start Episode</button>
         </div>
       </div>
+      <div class="status-line" id="scenarioStatus">Scenario not loaded yet.</div>
       <div class="actions">
         <button class="actionBtn" data-action="0">Action 0</button>
         <button class="actionBtn" data-action="1">Action 1</button>
@@ -325,6 +337,7 @@ def _homepage_html() -> str:
     <section class="board">
       <span class="pill" id="modePill">No episode yet</span>
       <div class="metrics">
+        <div class="metric"><span class="k">Context</span><span class="v" id="contextV">-</span></div>
         <div class="metric"><span class="k">Difficulty</span><span class="v" id="difficultyV">-</span></div>
         <div class="metric"><span class="k">Time</span><span class="v" id="timeV">-</span></div>
         <div class="metric"><span class="k">Time Budget</span><span class="v" id="budgetV">-</span></div>
@@ -343,10 +356,18 @@ def _homepage_html() -> str:
     const resetBtn = document.getElementById("resetBtn");
     const actionButtons = [...document.querySelectorAll(".actionBtn")];
     const difficultySel = document.getElementById("difficulty");
+    const seedInput = document.getElementById("seedInput");
     const modePill = document.getElementById("modePill");
+    const scenarioStatus = document.getElementById("scenarioStatus");
     const tasksBox = document.getElementById("tasksBox");
     const logBox = document.getElementById("logBox");
+    const scenarioLabels = {
+      "task-scheduling": "Easy (Regular College Day)",
+      "task-priority": "Medium (Exam Week Pressure)",
+      "task-deadline": "Hard (Internship + Exams Clash)"
+    };
     const fields = {
+      context: document.getElementById("contextV"),
       difficulty: document.getElementById("difficultyV"),
       time: document.getElementById("timeV"),
       budget: document.getElementById("budgetV"),
@@ -357,12 +378,12 @@ def _homepage_html() -> str:
       done: document.getElementById("doneV")
     };
 
-    const state = { done: true, lastReward: null, rewards: [] };
+    const state = { done: true, lastReward: null, rewards: [], pendingSelection: false };
 
     function setLoading(active) {
       resetBtn.disabled = active;
       actionButtons.forEach((btn) => {
-        btn.disabled = active || state.done;
+        btn.disabled = active || state.done || state.pendingSelection;
       });
     }
 
@@ -381,8 +402,11 @@ def _homepage_html() -> str:
       const { observation, reward, done } = parsePayload(payload);
       state.done = done;
       state.lastReward = reward;
+      state.pendingSelection = false;
 
       modePill.textContent = `Mode: ${toSafe(observation.task_mode)} | Context: ${toSafe(observation.context)}`;
+      scenarioStatus.textContent = `Scenario Loaded: ${scenarioLabels[observation.task_mode] || observation.task_mode}`;
+      fields.context.textContent = toSafe(observation.context);
       fields.difficulty.textContent = toSafe(observation.difficulty);
       fields.time.textContent = toSafe(observation.time);
       fields.budget.textContent = toSafe(observation.time_budget);
@@ -439,15 +463,42 @@ def _homepage_html() -> str:
       return response.json();
     }
 
+    function markScenarioChanged() {
+      state.pendingSelection = true;
+      state.done = true;
+      scenarioStatus.textContent = `Scenario selected: ${scenarioLabels[difficultySel.value] || difficultySel.value}. Click Start Episode to load it.`;
+      logBox.textContent = "Scenario changed. Click Start Episode to begin a new episode.";
+      setLoading(false);
+    }
+
     async function startEpisode() {
       setLoading(true);
       state.rewards = [];
       logBox.textContent = "Resetting environment...";
       try {
-        const payload = await callApi("/reset", {
-          task: difficultySel.value,
-          task_name: difficultySel.value
-        });
+        const body = {};
+        const seedText = seedInput.value.trim();
+        if (seedText !== "") {
+          const seedValue = Number(seedText);
+          if (!Number.isInteger(seedValue) || seedValue < 0) {
+            throw new Error("Seed must be a non-negative integer.");
+          }
+          body.seed = seedValue;
+        }
+        const selected = encodeURIComponent(difficultySel.value);
+        const payload = await callApi(
+          `/reset?task=${selected}&task_name=${selected}`,
+          body
+        );
+        const { observation } = parsePayload(payload);
+        if (observation.task_mode !== difficultySel.value) {
+          state.pendingSelection = true;
+          state.done = true;
+          setLoading(false);
+          scenarioStatus.textContent = "Scenario mismatch detected. Please click Start Episode again.";
+          logBox.textContent = `Mismatch detected: selected=${difficultySel.value}, loaded=${observation.task_mode || "unknown"}`;
+          return;
+        }
         render(payload);
       } catch (err) {
         state.done = true;
@@ -472,6 +523,7 @@ def _homepage_html() -> str:
     }
 
     resetBtn.addEventListener("click", startEpisode);
+    difficultySel.addEventListener("change", markScenarioChanged);
     actionButtons.forEach((btn) => {
       btn.addEventListener("click", () => sendAction(btn.dataset.action));
       btn.disabled = true;
