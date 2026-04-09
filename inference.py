@@ -1,11 +1,23 @@
+import os
 import requests
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv(
+    "API_BASE_URL",
+    "https://tk8055-my-env.hf.space"
+)
 
 def main():
     print("[START]")
 
-    state = requests.post(f"{BASE_URL}/reset").json().get("observation", {})
+    try:
+        response = requests.post(f"{BASE_URL}/reset", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"[END] error=reset_failed {e}", flush=True)
+        return
+
+    state = data.get("observation", {})
 
     for i in range(5):
         tasks = state.get("tasks", [])
@@ -20,7 +32,17 @@ def main():
                     best = score
                     action = i
 
-        res = requests.post(f"{BASE_URL}/step", json={"action": action}).json()
+        try:
+            response = requests.post(
+                f"{BASE_URL}/step",
+                json={"action": action},
+                timeout=10
+            )
+            response.raise_for_status()
+            res = response.json()
+        except Exception as e:
+            print(f"[END] error=step_failed {e}", flush=True)
+            return
 
         print(f"[STEP] action={action} reward={res.get('reward')}")
 
