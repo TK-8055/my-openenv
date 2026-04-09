@@ -85,7 +85,17 @@ def test_optimal_action_gives_high_reward():
     best = obs.recommended_action
     obs = env.step(MyAction(action=best))
 
-    assert obs.reward == 1.0
+    assert (obs.reward or 0.0) >= 0.7
+
+
+def test_repeating_same_action_gets_penalized():
+    env = MyEnvironment()
+    obs = env.reset(task="task-priority")
+
+    first = env.step(MyAction(action=0))
+    second = env.step(MyAction(action=0))
+
+    assert (second.reward or 0.0) <= (first.reward or 0.0)
 
 
 def test_completed_task_reduces_time_budget():

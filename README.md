@@ -12,14 +12,16 @@ pinned: false
 # Student Task Scheduling Environment
 
 A small OpenEnv environment where an agent helps a student decide what to work on next when coursework, exams, and project deadlines compete for limited study time.
+This environment evaluates decision-making under resource constraints, where agents must choose which tasks to sacrifice when full completion is impossible.
 
 ## Overview
 
 This project simulates real student planning across three benchmark tasks:
 
-- `task-scheduling`: easy day-planning with enough time to finish the right work
-- `task-priority`: medium difficulty tradeoffs during exam week
-- `task-deadline`: hard deadline management when there is not enough time for every task
+- `task-scheduling`: easy regular-college-day planning with low conflict
+- `task-priority`: medium exam-week tradeoffs under limited study time
+- `task-deadline`: hard internship-plus-exam clash where sacrifice is required
+The hard scenario is intentionally unsolvable, forcing agents to prioritize high-impact tasks rather than attempting full completion.
 
 At each step, the agent chooses one of three tasks or skips. The environment returns:
 
@@ -38,9 +40,13 @@ API example:
 
 ```json
 {
-  "action": 1
+  "action": {
+    "action": 1
+  }
 }
 ```
+
+Compatibility note: the server also accepts a simplified payload `{ "action": 1 }` and normalizes it internally.
 
 ## Observation
 
@@ -63,12 +69,13 @@ Each observation includes:
 
 ## Reward Logic
 
-Reward is always in `[0.0, 1.0]` and reflects partial progress instead of only terminal success.
+Reward is always clamped to `[0.0, 1.0]` and reflects partial progress instead of only terminal success.
 
-- `1.0`: optimal action
-- `0.1` to `0.9`: imperfect but meaningful progress
-- `0.2`: valid skip when no unfinished task fits the remaining time budget
-- `0.0`: poor action
+- completion value (+0.4 when a feasible task is completed)
+- priority contribution (+0.2 * priority/3)
+- urgency bonus (higher reward for near-deadline work)
+- recommendation bonus/penalty (+0.2 for recommended action, `-0.15` otherwise)
+- anti-loop penalty (`-0.2` for repeating the same action on consecutive steps)
 
 Difficulty affects strictness:
 
@@ -97,7 +104,7 @@ action = 0
 reward = 1.0
 ```
 
-Why: the selected task is the highest-value work for exam week, with both urgent deadline pressure and strong academic impact.
+Why: the selected task is urgent, high-priority, and aligned with the scenario objective.
 
 ## Project Structure
 
@@ -170,15 +177,15 @@ cd /home/tk/Desktop/hack/my_env
 - `GET /` serves the interactive reviewer-friendly UI
 - `GET /status` returns a lightweight health payload: `{"status":"ok"}`
 - `POST /reset` starts a new episode
-- `POST /step` expects a plain integer field like `{ "action": 0 }`
+- `POST /step` accepts OpenEnv shape `{ "action": {"action": 0} }` and also supports `{ "action": 0 }`
 - `GET /docs` provides the Swagger UI
 
 ## Current Strengths
 
 - real-world student planning domain
-- three deterministic benchmark tasks with increasing difficulty
+- three deterministic benchmark tasks with increasing real-world pressure
 - interpretable reward explanations and scenario objectives
-- deadline pressure plus workload-fit modeling
+- deadline pressure plus anti-loop behavior modeling
 - baseline inference policy aligned with environment scoring
 
 ## Limitations

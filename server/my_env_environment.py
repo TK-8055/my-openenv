@@ -28,32 +28,32 @@ class MyEnvironment(Environment):
         "task-scheduling": {
             "context": "coursework",
             "difficulty": "easy",
-            "time_budget": 6,
+            "time_budget": 5,
             "objective": (
-                "Plan a calm study block and finish the most valuable coursework "
-                "before tomorrow's classes."
+                "Regular college day: complete core coursework and build momentum "
+                "for the rest of the week."
             ),
             "focus_category": "assignment",
             "tasks": (
                 {
-                    "title": "Finish calculus worksheet",
+                    "title": "Finish math homework set",
                     "category": "assignment",
-                    "priority": 3,
-                    "deadline": 1,
-                    "estimated_hours": 2,
-                },
-                {
-                    "title": "Draft chemistry lab summary",
-                    "category": "lab",
                     "priority": 2,
                     "deadline": 2,
                     "estimated_hours": 2,
                 },
                 {
-                    "title": "Review sociology flashcards",
+                    "title": "Revise biology lecture notes",
                     "category": "revision",
                     "priority": 1,
                     "deadline": 3,
+                    "estimated_hours": 1,
+                },
+                {
+                    "title": "Update weekly planner checklist",
+                    "category": "planning",
+                    "priority": 1,
+                    "deadline": 4,
                     "estimated_hours": 1,
                 },
             ),
@@ -61,10 +61,10 @@ class MyEnvironment(Environment):
         "task-priority": {
             "context": "exam_week",
             "difficulty": "medium",
-            "time_budget": 5,
+            "time_budget": 4,
             "objective": (
-                "Balance an exam revision sprint with coursework that is due the "
-                "same week."
+                "Exam week pressure: balance revision with near-term coursework "
+                "deadlines under limited study hours."
             ),
             "focus_category": "revision",
             "tasks": (
@@ -94,31 +94,38 @@ class MyEnvironment(Environment):
         "task-deadline": {
             "context": "project_crunch",
             "difficulty": "hard",
-            "time_budget": 4,
+            "time_budget": 5,
             "objective": (
-                "Handle overlapping project and exam deadlines when there is not "
-                "enough time to finish everything."
+                "Internship and exams clash: make high-stakes tradeoffs when there "
+                "is not enough time to finish every critical task."
             ),
             "focus_category": "project",
             "tasks": (
                 {
-                    "title": "Complete capstone presentation slides",
+                    "title": "Capstone project submission",
                     "category": "project",
+                    "priority": 3,
+                    "deadline": 2,
+                    "estimated_hours": 3,
+                },
+                {
+                    "title": "Final exam preparation",
+                    "category": "revision",
                     "priority": 3,
                     "deadline": 1,
                     "estimated_hours": 3,
                 },
                 {
-                    "title": "Practice algorithms quiz",
-                    "category": "revision",
-                    "priority": 3,
+                    "title": "Client meeting preparation",
+                    "category": "commitment",
+                    "priority": 2,
                     "deadline": 1,
                     "estimated_hours": 2,
                 },
                 {
-                    "title": "Edit scholarship essay",
-                    "category": "writing",
-                    "priority": 2,
+                    "title": "Assignment work",
+                    "category": "assignment",
+                    "priority": 1,
                     "deadline": 2,
                     "estimated_hours": 2,
                 },
@@ -136,6 +143,7 @@ class MyEnvironment(Environment):
         self.tasks: list[Task] = []
         self.time = 0
         self.time_budget = 0
+        self.last_action: int | None = None
         self.reset()
 
     def reset(
@@ -157,6 +165,7 @@ class MyEnvironment(Environment):
         self.tasks = [Task(**task_data) for task_data in scenario["tasks"]]  # type: ignore[arg-type]
         self.time = 0
         self.time_budget = int(scenario["time_budget"])
+        self.last_action = None
         return self._build_observation(
             reward=None,
             done=False,
@@ -196,13 +205,19 @@ class MyEnvironment(Environment):
                     f"'{chosen_task.title}' was already completed, so the choice earned no reward."
                 )
         else:
-            reward = 0.2 if recommended_index == 3 else 0.0
+            reward = 0.35 if recommended_index == 3 else 0.0
             decision_summary = (
                 "Skipping is acceptable because no unfinished task fits the remaining time budget."
                 if recommended_index == 3
                 else "Skipping was not optimal because unfinished tasks still remain."
             )
 
+        if self.last_action is not None and chosen_index == self.last_action:
+            reward -= 0.2
+            decision_summary += " Repeating the same action reduced reward."
+
+        reward = self._clamp_reward(reward)
+        self.last_action = chosen_index
         self.time += 1
         done = (
             all(task.done for task in self.tasks)
@@ -284,16 +299,23 @@ class MyEnvironment(Environment):
         chosen_task = self.tasks[chosen_index]
         if not self._can_finish(chosen_task):
             return 0.0
-        if chosen_index == recommended_index:
-            return 1.0
-        if recommended_index == 3:
-            return 0.0
 
-        best_task = self.tasks[recommended_index]
-        best_score = max(1, self._task_score(best_task))
-        chosen_score = self._task_score(chosen_task)
-        ratio = chosen_score / best_score
-        return round(max(0.1, min(0.9, ratio * 0.85)), 2)
+        reward = 0.4
+        reward += 0.2 * (chosen_task.priority / 3)
+
+        deadline_gap = max(0, chosen_task.deadline - self.time)
+        urgency = max(0.0, 0.25 - (0.08 * deadline_gap))
+        reward += urgency
+
+        if chosen_task.category == self.focus_category:
+            reward += 0.05
+
+        if chosen_index == recommended_index:
+            reward += 0.2
+        else:
+            reward -= 0.15
+
+        return reward
 
     def _decision_summary(
         self, chosen_task: Task, reward: float, recommended_index: int
@@ -330,6 +352,9 @@ class MyEnvironment(Environment):
 
     def _can_finish(self, task: Task) -> bool:
         return task.estimated_hours <= self.time_budget
+
+    def _clamp_reward(self, reward: float) -> float:
+        return round(max(0.0, min(1.0, reward)), 2)
 
     def _task_score(self, task: Task) -> int:
         urgency = max(0, 4 - max(0, task.deadline - self.time))

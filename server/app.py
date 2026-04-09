@@ -1,6 +1,7 @@
 """FastAPI application for the My Env environment."""
 
 from collections import defaultdict, deque
+import json
 from time import monotonic
 
 from fastapi import Request
@@ -37,6 +38,30 @@ _request_windows: dict[str, deque[float]] = defaultdict(deque)
 @app.middleware("http")
 async def limit_reset_and_step_requests(request: Request, call_next):
     """Apply lightweight per-IP throttling for expensive environment calls."""
+    if request.method == "POST" and request.url.path == "/step":
+        body = await request.body()
+        if body:
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                payload = None
+
+            if isinstance(payload, dict):
+                action = payload.get("action")
+                if isinstance(action, int) and not isinstance(action, bool):
+                    payload["action"] = {"action": action}
+                    normalized_body = json.dumps(payload).encode("utf-8")
+
+                    async def receive() -> dict:
+                        return {
+                            "type": "http.request",
+                            "body": normalized_body,
+                            "more_body": False,
+                        }
+
+                    request._body = normalized_body
+                    request._receive = receive
+
     if request.method == "POST" and request.url.path in {"/reset", "/step"}:
         now = monotonic()
         key = request.client.host if request.client else "unknown"
@@ -231,6 +256,11 @@ def _homepage_html() -> str:
       background: #f4fff8;
       border-color: #b9e6c8;
     }
+    .task.recommended {
+      border-color: #0e7490;
+      box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.13);
+      background: #f0fbff;
+    }
     .task-title {
       font-weight: 700;
       margin-bottom: 4px;
@@ -274,9 +304,9 @@ def _homepage_html() -> str:
         <div>
           <label for="difficulty">Scenario</label>
           <select id="difficulty">
-            <option value="task-scheduling">Easy: task-scheduling</option>
-            <option value="task-priority">Medium: task-priority</option>
-            <option value="task-deadline">Hard: task-deadline</option>
+            <option value="task-scheduling">Easy: Regular College Day</option>
+            <option value="task-priority">Medium: Exam Week Pressure</option>
+            <option value="task-deadline">Hard: Internship + Exams Clash</option>
           </select>
         </div>
         <div>
@@ -300,6 +330,8 @@ def _homepage_html() -> str:
         <div class="metric"><span class="k">Time Budget</span><span class="v" id="budgetV">-</span></div>
         <div class="metric"><span class="k">Recommended</span><span class="v" id="recV">-</span></div>
         <div class="metric"><span class="k">Reward</span><span class="v" id="rewardV">-</span></div>
+        <div class="metric"><span class="k">Progress</span><span class="v" id="progressV">-</span></div>
+        <div class="metric"><span class="k">Live Score</span><span class="v" id="scoreV">-</span></div>
         <div class="metric"><span class="k">Status</span><span class="v" id="doneV">-</span></div>
       </div>
       <div class="tasks" id="tasksBox"></div>
@@ -320,10 +352,12 @@ def _homepage_html() -> str:
       budget: document.getElementById("budgetV"),
       recommended: document.getElementById("recV"),
       reward: document.getElementById("rewardV"),
+      progress: document.getElementById("progressV"),
+      score: document.getElementById("scoreV"),
       done: document.getElementById("doneV")
     };
 
-    const state = { done: true, lastReward: null };
+    const state = { done: true, lastReward: null, rewards: [] };
 
     function setLoading(active) {
       resetBtn.disabled = active;
@@ -357,12 +391,23 @@ def _homepage_html() -> str:
       fields.done.innerHTML = done ? '<span class="good">Done</span>' : '<span class="warn">In Progress</span>';
 
       const tasks = Array.isArray(observation.tasks) ? observation.tasks : [];
+      const completed = tasks.filter((task) => task.done).length;
+      fields.progress.textContent = `${completed}/${tasks.length || 0}`;
+      if (reward !== null && !Number.isNaN(Number(reward))) {
+        state.rewards.push(Number(reward));
+      }
+      const avgScore = state.rewards.length
+        ? state.rewards.reduce((acc, value) => acc + value, 0) / state.rewards.length
+        : null;
+      fields.score.textContent = avgScore === null ? "-" : avgScore.toFixed(2);
+
       tasksBox.innerHTML = tasks.map((task, idx) => {
         const doneClass = task.done ? "done" : "";
+        const recommendedClass = idx === observation.recommended_action && !task.done ? "recommended" : "";
         const doneText = task.done ? "complete" : "pending";
         return `
-          <article class="task ${doneClass}">
-            <div class="task-title">${idx}. ${task.title}</div>
+          <article class="task ${doneClass} ${recommendedClass}">
+            <div class="task-title">${idx}. ${task.title}${recommendedClass ? " (recommended)" : ""}</div>
             <div class="task-meta">
               category=${task.category} | priority=${task.priority} | deadline=${task.deadline} | hours=${task.estimated_hours} | ${doneText}
             </div>
@@ -396,6 +441,7 @@ def _homepage_html() -> str:
 
     async function startEpisode() {
       setLoading(true);
+      state.rewards = [];
       logBox.textContent = "Resetting environment...";
       try {
         const payload = await callApi("/reset", { task: difficultySel.value });
@@ -412,7 +458,9 @@ def _homepage_html() -> str:
       setLoading(true);
       logBox.textContent = `Submitting action ${action}...`;
       try {
-        const payload = await callApi("/step", { action: Number(action) });
+        const payload = await callApi("/step", {
+          action: { action: Number(action) }
+        });
         render(payload);
       } catch (err) {
         setLoading(false);
