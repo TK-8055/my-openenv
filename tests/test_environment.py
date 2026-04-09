@@ -6,12 +6,16 @@ def test_reset_observation_shape():
     env = MyEnvironment()
     obs = env.reset()
 
-    assert obs.context in {"sports", "student", "doctor"}
+    assert obs.context in {"coursework", "exam_week", "project_crunch"}
     assert obs.difficulty in {"easy", "medium", "hard"}
+    assert obs.task_mode in {"task-scheduling", "task-priority", "task-deadline"}
     assert len(obs.tasks) == 3
     assert obs.time == 0
+    assert obs.time_budget > 0
     assert 0 <= obs.steps_remaining <= env.MAX_TIME
     assert obs.recommended_action in {0, 1, 2, 3}
+    assert obs.objective
+    assert obs.conflict_level >= 0
 
 
 def test_step_reward_is_bounded():
@@ -28,6 +32,22 @@ def test_recommended_action_valid():
     obs = env.reset()
 
     assert 0 <= obs.recommended_action <= 3
+
+
+def test_task_modes_map_to_distinct_scenarios():
+    env = MyEnvironment()
+
+    scheduling = env.reset(task="task-scheduling")
+    assert scheduling.context == "coursework"
+    assert scheduling.difficulty == "easy"
+
+    priority = env.reset(task="task-priority")
+    assert priority.context == "exam_week"
+    assert priority.difficulty == "medium"
+
+    deadline = env.reset(task="task-deadline")
+    assert deadline.context == "project_crunch"
+    assert deadline.difficulty == "hard"
 
 
 def test_done_flag():
@@ -66,6 +86,16 @@ def test_optimal_action_gives_high_reward():
     obs = env.step(MyAction(action=best))
 
     assert obs.reward == 1.0
+
+
+def test_completed_task_reduces_time_budget():
+    env = MyEnvironment()
+    obs = env.reset(task="task-scheduling")
+    starting_budget = obs.time_budget
+
+    obs = env.step(MyAction(action=obs.recommended_action))
+
+    assert obs.time_budget < starting_budget
 
 
 def test_full_episode_runs():

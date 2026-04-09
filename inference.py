@@ -52,19 +52,25 @@ def build_prompt(observation) -> str:
     task_lines = []
     for index, task in enumerate(observation.tasks):
         task_lines.append(
-            f"{index}: title={task.title}, priority={task.priority}, "
-            f"deadline={task.deadline}, done={str(task.done).lower()}"
+            f"{index}: title={task.title}, category={task.category}, "
+            f"priority={task.priority}, deadline={task.deadline}, "
+            f"estimated_hours={task.estimated_hours}, "
+            f"done={str(task.done).lower()}"
         )
 
     return (
-        "Choose the best next action for this task scheduling environment.\n"
+        "Choose the best next action for this student planning environment.\n"
         "Return exactly one integer: 0, 1, 2, or 3.\n"
-        "Pick the strongest unfinished task using context, difficulty, priority, "
-        "deadline, and time remaining.\n\n"
+        "Pick the strongest unfinished task using the study objective, priority, "
+        "deadline pressure, remaining hours, and workload fit.\n\n"
+        f"task_mode={observation.task_mode}\n"
         f"context={observation.context}\n"
         f"difficulty={observation.difficulty}\n"
+        f"objective={observation.objective}\n"
         f"time={observation.time}\n"
+        f"time_budget={observation.time_budget}\n"
         f"steps_remaining={observation.steps_remaining}\n"
+        f"conflict_level={observation.conflict_level}\n"
         f"recommended_action={observation.recommended_action}\n"
         f"score_explanation={observation.score_explanation}\n"
         "tasks:\n"
@@ -108,8 +114,8 @@ def choose_action(client: OpenAI, observation) -> int:
                 {
                     "role": "system",
                     "content": (
-                        "You are a careful scheduler. Return exactly one integer "
-                        "between 0 and 3 and nothing else."
+                        "You are a careful student-planning assistant. Return "
+                        "exactly one integer between 0 and 3 and nothing else."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -154,7 +160,7 @@ async def main() -> None:
             score = 0.01
 
             try:
-                result = await env.reset(seed=episode_index)
+                result = await env.reset(task=task_name, seed=episode_index)
                 log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
                 emitted_logs = True
 

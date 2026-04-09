@@ -25,10 +25,14 @@ class MyEnv(EnvClient[MyAction, MyObservation, State]):
         observation = MyObservation(
             context=obs_data["context"],
             difficulty=obs_data["difficulty"],
+            task_mode=obs_data["task_mode"],
             tasks=[Task(**task) for task in task_items],
             time=obs_data.get("time", 0),
+            time_budget=obs_data.get("time_budget", 0),
             steps_remaining=obs_data.get("steps_remaining", 0),
             recommended_action=obs_data.get("recommended_action", 3),
+            objective=obs_data.get("objective", ""),
+            conflict_level=obs_data.get("conflict_level", 0),
             score_explanation=obs_data.get("score_explanation", ""),
             decision_summary=obs_data.get(
                 "decision_summary",

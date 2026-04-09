@@ -9,17 +9,17 @@ app_file: server/app.py
 pinned: false
 ---
 
-# Context-Aware Task Scheduling Environment
+# Student Task Scheduling Environment
 
-A small OpenEnv environment where an agent chooses the best next task based on context, priority, and urgency.
+A small OpenEnv environment where an agent helps a student decide what to work on next when coursework, exams, and project deadlines compete for limited study time.
 
 ## Overview
 
-This project simulates real-world task selection in three scenarios:
+This project simulates real student planning across three benchmark tasks:
 
-- `student`
-- `doctor`
-- `sports`
+- `task-scheduling`: easy day-planning with enough time to finish the right work
+- `task-priority`: medium difficulty tradeoffs during exam week
+- `task-deadline`: hard deadline management when there is not enough time for every task
 
 At each step, the agent chooses one of three tasks or skips. The environment returns:
 
@@ -27,7 +27,7 @@ At each step, the agent chooses one of three tasks or skips. The environment ret
 - a reward
 - an explanation of why the action was good or bad
 
-We use a composite scoring heuristic combining priority, context relevance, and urgency. We explicitly model deadline pressure to simulate urgency. We don't just reward actions, we explain them, making the system interpretable.
+We score decisions using deterministic reward shaping based on priority, deadline pressure, workload fit, and task relevance to the scenario objective. The environment exposes both a recommended action and a natural-language explanation so the grader stays interpretable.
 
 ## Action Space
 
@@ -48,8 +48,12 @@ Each observation includes:
 
 - current `context`
 - current `difficulty`
-- `tasks` with title, priority, deadline, and completion status
+- current `task_mode`
+- scenario `objective`
+- `tasks` with title, category, priority, deadline, estimated hours, and completion status
 - current `time`
+- remaining `time_budget`
+- `conflict_level`
 - `steps_remaining`
 - `recommended_action`
 - `score_explanation`
@@ -59,11 +63,11 @@ Each observation includes:
 
 ## Reward Logic
 
-Reward is always in `[0.0, 1.0]`.
+Reward is always in `[0.0, 1.0]` and reflects partial progress instead of only terminal success.
 
 - `1.0`: optimal action
-- `0.5`: acceptable but not best action in easier settings
-- `0.1`: valid skip when all tasks are complete
+- `0.1` to `0.9`: imperfect but meaningful progress
+- `0.2`: valid skip when no unfinished task fits the remaining time budget
 - `0.0`: poor action
 
 Difficulty affects strictness:
@@ -81,11 +85,11 @@ State -> Agent -> Action -> Reward -> Next State
 ## Example
 
 ```text
-context = "doctor"
+context = "exam_week"
 tasks = [
-  {"title": "critical patient review", "priority": 5, "deadline": 1, "done": false},
-  {"title": "follow-up rounds", "priority": 3, "deadline": 3, "done": false},
-  {"title": "paperwork", "priority": 1, "deadline": 5, "done": false}
+  {"title": "Practice chemistry mock test", "priority": 3, "deadline": 1, "estimated_hours": 2, "done": false},
+  {"title": "Submit history reflection", "priority": 2, "deadline": 1, "estimated_hours": 2, "done": false},
+  {"title": "Prepare tutoring notes", "priority": 1, "deadline": 2, "estimated_hours": 1, "done": false}
 ]
 
 recommended_action = 0
@@ -93,7 +97,7 @@ action = 0
 reward = 1.0
 ```
 
-Why: the selected task matches the doctor context and has the strongest priority/deadline tradeoff.
+Why: the selected task is the highest-value work for exam week, with both urgent deadline pressure and strong academic impact.
 
 ## Project Structure
 
@@ -169,10 +173,10 @@ cd /home/tk/Desktop/hack/my_env
 
 ## Current Strengths
 
-- interpretable reward explanations
-- context-aware scheduling logic
-- deadline pressure modeling
-- recommended vs chosen action comparison
+- real-world student planning domain
+- three deterministic benchmark tasks with increasing difficulty
+- interpretable reward explanations and scenario objectives
+- deadline pressure plus workload-fit modeling
 - baseline inference policy aligned with environment scoring
 
 ## Limitations
