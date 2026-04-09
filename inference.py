@@ -4,6 +4,7 @@ import re
 from typing import Optional
 
 from openai import OpenAI
+from openenv.core.containers.runtime.uv_provider import UVProvider
 
 try:
     from .client import MyEnv
@@ -16,10 +17,11 @@ except ImportError:
 API_KEY = os.environ["API_KEY"]
 API_BASE_URL = os.environ["API_BASE_URL"]
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-LOCAL_IMAGE_NAME = os.environ["LOCAL_IMAGE_NAME"]
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 TASK_NAME = os.getenv("TASK_NAME", "task-scheduling")
 BENCHMARK = os.getenv("BENCHMARK", "my_env")
 MAX_STEPS = 10
+PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -74,6 +76,19 @@ def create_openai_client() -> OpenAI:
     return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 
+async def create_env():
+    if LOCAL_IMAGE_NAME:
+        return await MyEnv.from_docker_image(LOCAL_IMAGE_NAME)
+
+    provider = UVProvider(project_path=PROJECT_PATH)
+    base_url = provider.start()
+    provider.wait_for_ready()
+
+    env = MyEnv(base_url=base_url, provider=provider)
+    await env.connect()
+    return env
+
+
 def smoke_test_llm(client: OpenAI) -> None:
     try:
         client.chat.completions.create(
@@ -124,7 +139,7 @@ async def main() -> None:
 
     try:
         smoke_test_llm(client)
-        env = await MyEnv.from_docker_image(LOCAL_IMAGE_NAME)
+        env = await create_env()
         result = await env.reset()
 
         while steps_taken < MAX_STEPS:
