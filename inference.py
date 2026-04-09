@@ -1,8 +1,12 @@
+import requests
 import os
 from openai import OpenAI
-import requests
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://tk8055-my-env.hf.space")
+API_BASE_URL = os.getenv("API_BASE_URL")
+if not API_BASE_URL:
+    API_BASE_URL = "https://tk8055-my-env.hf.space"
+BASE_URL = API_BASE_URL
+
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -28,9 +32,9 @@ def main():
     print("[START]", flush=True)
 
     try:
-        response = requests.post(f"{API_BASE_URL}/reset", timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        res = requests.post(f"{BASE_URL}/reset", timeout=10)
+        res.raise_for_status()
+        data = res.json()
     except Exception as e:
         print(f"[END] error=reset_failed {e}", flush=True)
         return
@@ -42,13 +46,13 @@ def main():
         action = choose_action(state)
 
         try:
-            response = requests.post(
-                f"{API_BASE_URL}/step",
+            res = requests.post(
+                f"{BASE_URL}/step",
                 json={"action": action},
                 timeout=10
             )
-            response.raise_for_status()
-            data = response.json()
+            res.raise_for_status()
+            data = res.json()
         except Exception as e:
             print(f"[STEP] error=step_failed {e}", flush=True)
             break
@@ -66,7 +70,7 @@ def main():
 
         step += 1
 
-    _ = (client, MODEL_NAME)
+    _ = (client, MODEL_NAME, BASE_URL)
     print("[END]", flush=True)
 
 if __name__ == "__main__":
