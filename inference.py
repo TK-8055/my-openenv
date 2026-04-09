@@ -2,15 +2,13 @@ import requests
 import os
 from openai import OpenAI
 
-API_BASE_URL = os.getenv("API_BASE_URL")
-if not API_BASE_URL:
-    API_BASE_URL = "https://tk8055-my-env.hf.space"
+API_KEY = os.environ["API_KEY"]
+API_BASE_URL = os.environ["API_BASE_URL"]
 BASE_URL = API_BASE_URL
 
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN = os.getenv("HF_TOKEN")
 
-client = OpenAI(api_key=HF_TOKEN)
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 
 def choose_action(state):
