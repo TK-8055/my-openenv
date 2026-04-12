@@ -230,6 +230,47 @@ def _homepage_html() -> str:
       color: #1f2933;
       font-size: 0.9rem;
     }
+    .coach {
+      margin-top: 10px;
+      border-radius: 12px;
+      border: 1px solid #d1e7ef;
+      background: #f2fbff;
+      padding: 12px;
+      line-height: 1.45;
+      color: #123849;
+      font-size: 0.9rem;
+    }
+    .history {
+      margin-top: 12px;
+      border: 1px solid #d8e4e7;
+      border-radius: 12px;
+      background: #fbfeff;
+      overflow: hidden;
+    }
+    .history-head {
+      padding: 10px 12px;
+      font-weight: 700;
+      background: #edf8fc;
+      border-bottom: 1px solid #d8e4e7;
+      color: #1b4253;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid #ebf2f4;
+    }
+    th {
+      background: #f7fcfe;
+      color: #35515f;
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
     .good { color: var(--good); font-weight: 700; }
     .warn { color: var(--warn); font-weight: 700; }
   </style>
@@ -287,10 +328,29 @@ def _homepage_html() -> str:
         <div class="metric"><span class="k">Reward</span><span class="v" id="rewardV">-</span></div>
         <div class="metric"><span class="k">Progress</span><span class="v" id="progressV">-</span></div>
         <div class="metric"><span class="k">Live Score</span><span class="v" id="scoreV">-</span></div>
+        <div class="metric"><span class="k">Conflict</span><span class="v" id="conflictV">-</span></div>
+        <div class="metric"><span class="k">Objective</span><span class="v" id="objectiveV">-</span></div>
         <div class="metric"><span class="k">Status</span><span class="v" id="doneV">-</span></div>
       </div>
       <div class="tasks" id="tasksBox"></div>
       <div class="log" id="logBox">Press "Start Episode" to load state.</div>
+      <div class="coach" id="coachBox">Coach Tip: Start an episode to get strategy guidance.</div>
+      <div class="history" id="historyBox">
+        <div class="history-head">Step History</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Chosen</th>
+              <th>Recommended</th>
+              <th>Reward</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="4">No steps yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 
@@ -303,6 +363,8 @@ def _homepage_html() -> str:
     const scenarioStatus = document.getElementById("scenarioStatus");
     const tasksBox = document.getElementById("tasksBox");
     const logBox = document.getElementById("logBox");
+    const coachBox = document.getElementById("coachBox");
+    const historyBody = document.getElementById("historyBody");
     const scenarioLabels = {
       "task-scheduling": "Easy (Regular College Day)",
       "task-priority": "Medium (Exam Week Pressure)",
@@ -317,10 +379,18 @@ def _homepage_html() -> str:
       reward: document.getElementById("rewardV"),
       progress: document.getElementById("progressV"),
       score: document.getElementById("scoreV"),
+      conflict: document.getElementById("conflictV"),
+      objective: document.getElementById("objectiveV"),
       done: document.getElementById("doneV")
     };
 
-    const state = { done: true, lastReward: null, rewards: [], pendingSelection: false };
+    const state = {
+      done: true,
+      lastReward: null,
+      rewards: [],
+      pendingSelection: false,
+      history: []
+    };
 
     function setLoading(active) {
       resetBtn.disabled = active;
@@ -340,6 +410,33 @@ def _homepage_html() -> str:
       return value === undefined || value === null || value === "" ? fallback : value;
     }
 
+    function updateActionButtons(tasks) {
+      actionButtons.forEach((btn) => {
+        const action = Number(btn.dataset.action);
+        if (action === 3) {
+          btn.textContent = "Action 3 (Skip)";
+          return;
+        }
+        const task = tasks[action];
+        btn.textContent = task ? `Action ${action}: ${task.title}` : `Action ${action}`;
+      });
+    }
+
+    function renderHistory() {
+      if (!state.history.length) {
+        historyBody.innerHTML = '<tr><td colspan="4">No steps yet.</td></tr>';
+        return;
+      }
+      historyBody.innerHTML = state.history.map((row) => `
+        <tr>
+          <td>${row.step}</td>
+          <td>${row.chosen}</td>
+          <td>${row.recommended}</td>
+          <td>${row.reward}</td>
+        </tr>
+      `).join("");
+    }
+
     function render(payload) {
       const { observation, reward, done } = parsePayload(payload);
       state.done = done;
@@ -354,9 +451,12 @@ def _homepage_html() -> str:
       fields.budget.textContent = toSafe(observation.time_budget);
       fields.recommended.textContent = toSafe(observation.recommended_action);
       fields.reward.textContent = reward === null ? "-" : Number(reward).toFixed(2);
+      fields.conflict.textContent = toSafe(observation.conflict_level);
+      fields.objective.textContent = toSafe(observation.objective, "-");
       fields.done.innerHTML = done ? '<span class="good">Done</span>' : '<span class="warn">In Progress</span>';
 
       const tasks = Array.isArray(observation.tasks) ? observation.tasks : [];
+      updateActionButtons(tasks);
       const completed = tasks.filter((task) => task.done).length;
       fields.progress.textContent = `${completed}/${tasks.length || 0}`;
       if (reward !== null && !Number.isNaN(Number(reward))) {
@@ -366,6 +466,38 @@ def _homepage_html() -> str:
         ? state.rewards.reduce((acc, value) => acc + value, 0) / state.rewards.length
         : null;
       fields.score.textContent = avgScore === null ? "-" : avgScore.toFixed(2);
+
+      if (reward === null && Number(observation.time || 0) === 0) {
+        state.history = [];
+        renderHistory();
+      }
+
+      if (reward !== null) {
+        const comparison = observation?.metadata?.comparison ?? {};
+        const chosen = Number.isInteger(comparison.chosen) ? comparison.chosen : null;
+        const recommended = Number.isInteger(comparison.recommended)
+          ? comparison.recommended
+          : observation.recommended_action;
+
+        const chosenText = chosen === 3
+          ? "Skip"
+          : (chosen !== null && tasks[chosen])
+            ? `${chosen}: ${tasks[chosen].title}`
+            : toSafe(chosen, "-");
+        const recText = recommended === 3
+          ? "Skip"
+          : tasks[recommended]
+            ? `${recommended}: ${tasks[recommended].title}`
+            : toSafe(recommended, "-");
+
+        state.history.push({
+          step: Number(observation.time || state.history.length + 1),
+          chosen: chosenText,
+          recommended: recText,
+          reward: Number(reward).toFixed(2)
+        });
+        renderHistory();
+      }
 
       tasksBox.innerHTML = tasks.map((task, idx) => {
         const doneClass = task.done ? "done" : "";
@@ -383,6 +515,7 @@ def _homepage_html() -> str:
 
       const decision = toSafe(observation.decision_summary, "No decision summary.");
       const explain = toSafe(observation.score_explanation, "No explanation.");
+      coachBox.textContent = `Coach Tip: ${explain}`;
       logBox.textContent = `Decision: ${decision}\nWhy: ${explain}`;
       setLoading(false);
     }
@@ -408,14 +541,19 @@ def _homepage_html() -> str:
     function markScenarioChanged() {
       state.pendingSelection = true;
       state.done = true;
+      state.history = [];
+      renderHistory();
       scenarioStatus.textContent = `Scenario selected: ${scenarioLabels[difficultySel.value] || difficultySel.value}. Click Start Episode to load it.`;
       logBox.textContent = "Scenario changed. Click Start Episode to begin a new episode.";
+      coachBox.textContent = "Coach Tip: Start the episode to get a strategy recommendation.";
       setLoading(false);
     }
 
     async function startEpisode() {
       setLoading(true);
       state.rewards = [];
+      state.history = [];
+      renderHistory();
       logBox.textContent = "Resetting environment...";
       try {
         const body = {};

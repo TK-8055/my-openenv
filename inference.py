@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 from typing import List, Optional
 
 from openai import OpenAI
@@ -115,15 +116,38 @@ def choose_action(client: OpenAI, state) -> int:
 
         response = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Return exactly one integer (0, 1, 2, or 3). "
+                        "Do not include any extra text."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
             temperature=0,
+            max_tokens=6,
         )
 
-        action = int((response.choices[0].message.content or "").strip())
-        if action not in [0, 1, 2, 3]:
-            return 3
-        return action
+        raw_text = (response.choices[0].message.content or "").strip()
+        if raw_text.isdigit():
+            action = int(raw_text)
+            if action in [0, 1, 2, 3]:
+                return action
+
+        match = re.search(r"\b([0-3])\b", raw_text)
+        if match:
+            return int(match.group(1))
+
+        fallback = getattr(state, "recommended_action", 3)
+        if isinstance(fallback, int) and fallback in [0, 1, 2, 3]:
+            return fallback
+        return 3
     except Exception:
+        fallback = getattr(state, "recommended_action", 3)
+        if isinstance(fallback, int) and fallback in [0, 1, 2, 3]:
+            return fallback
         return 3
 
 
