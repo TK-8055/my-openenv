@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from random import Random
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -144,6 +145,7 @@ class MyEnvironment(Environment):
         self.time = 0
         self.time_budget = 0
         self.last_action: int | None = None
+        self.hidden_urgency: dict[int, int] = {}
         self.user_profile = {
             "risk_taking": 0,
             "consistency": 0,
@@ -170,6 +172,10 @@ class MyEnvironment(Environment):
         self.objective = str(scenario["objective"])
         self.focus_category = str(scenario["focus_category"])
         self.tasks = [Task(**task_data) for task_data in scenario["tasks"]]  # type: ignore[arg-type]
+        rng = Random(seed) if seed is not None else Random()
+        self.hidden_urgency = {
+            index: rng.randint(1, 5) for index in range(len(self.tasks))
+        }
         self.time = 0
         self.time_budget = int(scenario["time_budget"])
         self.last_action = None
@@ -239,6 +245,28 @@ class MyEnvironment(Environment):
         )
         self.last_action = chosen_index
         self.time += 1
+
+        # Critical failure: missing high-stakes deadlines can immediately end the episode.
+        if any(
+            (not task.done)
+            and (task.deadline < self.time)
+            and (
+                ("critical" in task.title.lower())
+                or ("capstone" in task.title.lower())
+                or ("final exam" in task.title.lower())
+            )
+            for task in self.tasks
+        ):
+            reward = 0.0
+            decision_summary += " Critical deadline missed; episode ended."
+            done = True
+            return self._build_observation(
+                reward=reward,
+                done=done,
+                decision_summary=decision_summary,
+                chosen_index=chosen_index,
+            )
+
         done = (
             all(task.done for task in self.tasks)
             or self.time >= self.MAX_TIME
@@ -301,14 +329,19 @@ class MyEnvironment(Environment):
         available = [
             (index, task)
             for index, task in enumerate(self.tasks)
-            if not task.done and self._can_finish(task)
+            if (
+                not task.done
+                and self._can_finish(task)
+                # Dependency: task 1 is locked until task 0 is complete.
+                and not (index == 1 and len(self.tasks) > 1 and not self.tasks[0].done)
+            )
         ]
         if not available:
             return 3
         ranked = sorted(
             available,
             key=lambda item: (
-                -self._task_score(item[1]),
+                -self._task_score(item[0], item[1]),
                 item[1].deadline,
                 item[1].estimated_hours,
                 item[0],
@@ -372,18 +405,20 @@ class MyEnvironment(Environment):
     def _clamp_reward(self, reward: float) -> float:
         return round(max(0.0, min(1.0, reward)), 2)
 
-    def _task_score(self, task: Task) -> int:
+    def _task_score(self, index: int, task: Task) -> int:
         # Strong context dominance + deadline pressure + feasibility.
         urgency = max(0, 5 - max(0, task.deadline - self.time))
         category_bonus = 4 if task.category == self.focus_category else 0
         overdue_bonus = 3 if self.time >= task.deadline else 0
         workload_bonus = max(0, 3 - task.estimated_hours)
+        hidden_urgency = self.hidden_urgency.get(index, 0)
         score = (
             (task.priority * 2)
             + (urgency * 2)
             + category_bonus
             + overdue_bonus
             + workload_bonus
+            + hidden_urgency
         )
         return score
 

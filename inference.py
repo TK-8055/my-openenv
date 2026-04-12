@@ -108,8 +108,10 @@ def smoke_test_llm(client: OpenAI) -> None:
 def choose_action(client: OpenAI, state) -> int:
     try:
         prompt = (
-            "You are a task scheduler AI.\n\n"
+            "You are an intelligent decision-making agent.\n\n"
             f"State:\n{build_prompt(state)}\n\n"
+            "Consider urgency, hidden risks, and task dependencies.\n"
+            "Reason briefly internally, then choose the best action.\n"
             "Choose best task index (0,1,2) or 3 to skip.\n"
             "Return ONLY a number."
         )
