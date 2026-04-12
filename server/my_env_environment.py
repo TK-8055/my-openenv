@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from random import Random
 from uuid import uuid4
 
@@ -12,6 +13,8 @@ try:
     from ..models import Difficulty, MyAction, MyObservation, Task
 except ImportError:
     from models import Difficulty, MyAction, MyObservation, Task
+
+URGENCY_MAP = {"low": 1, "medium": 3, "high": 5}
 
 
 class MyEnvironment(Environment):
@@ -145,7 +148,8 @@ class MyEnvironment(Environment):
         self.time = 0
         self.time_budget = 0
         self.last_action: int | None = None
-        self.hidden_urgency: dict[int, int] = {}
+        self.hidden_urgency: dict[int, str] = {}
+        self.hidden_risk: dict[int, int] = {}
         self.user_profile = {
             "risk_taking": 0,
             "consistency": 0,
@@ -173,8 +177,12 @@ class MyEnvironment(Environment):
         self.focus_category = str(scenario["focus_category"])
         self.tasks = [Task(**task_data) for task_data in scenario["tasks"]]  # type: ignore[arg-type]
         rng = Random(seed) if seed is not None else Random()
+        levels = ["low", "medium", "high"]
         self.hidden_urgency = {
-            index: rng.randint(1, 5) for index in range(len(self.tasks))
+            index: rng.choice(levels) for index in range(len(self.tasks))
+        }
+        self.hidden_risk = {
+            index: rng.randint(0, 2) for index in range(len(self.tasks))
         }
         self.time = 0
         self.time_budget = int(scenario["time_budget"])
@@ -332,8 +340,16 @@ class MyEnvironment(Environment):
             if (
                 not task.done
                 and self._can_finish(task)
-                # Dependency: task 1 is locked until task 0 is complete.
+                # Dependency chain: task 0 -> task 1 -> task 2.
                 and not (index == 1 and len(self.tasks) > 1 and not self.tasks[0].done)
+                and not (index == 2 and len(self.tasks) > 2 and not self.tasks[1].done)
+                # Branch rule (doctor-like context): task 2 requires task 1.
+                and not (
+                    index == 2
+                    and "doctor" in self.context
+                    and len(self.tasks) > 1
+                    and not self.tasks[1].done
+                )
             )
         ]
         if not available:
@@ -373,6 +389,9 @@ class MyEnvironment(Environment):
         # Temporal penalty: each overdue unfinished task increases opportunity-cost penalty.
         reward -= self._temporal_penalty()
 
+        # Small outcome uncertainty; keep bounded via downstream clamp.
+        reward += random.uniform(-0.05, 0.05)
+
         return reward
 
     def _build_summary(self, chosen: int, best: int, reward: float) -> str:
@@ -384,9 +403,9 @@ class MyEnvironment(Environment):
 
     def _apply_adaptive_penalties(self, reward: float, chosen: int, best: int) -> float:
         # Pressure increases as the horizon shrinks; late mistakes are costlier.
-        pressure = self.time / self.MAX_TIME
+        pressure = (self.time / self.MAX_TIME) ** 2
         if chosen != best:
-            reward -= pressure * 0.3
+            reward -= pressure * 0.4
 
         # Adaptive behavior model.
         if self.user_profile["risk_taking"] > 2:
@@ -411,7 +430,9 @@ class MyEnvironment(Environment):
         category_bonus = 4 if task.category == self.focus_category else 0
         overdue_bonus = 3 if self.time >= task.deadline else 0
         workload_bonus = max(0, 3 - task.estimated_hours)
-        hidden_urgency = self.hidden_urgency.get(index, 0)
+        hidden_label = self.hidden_urgency.get(index, "low")
+        hidden_urgency = URGENCY_MAP.get(hidden_label, 1)
+        risk = self.hidden_risk.get(index, 0)
         score = (
             (task.priority * 2)
             + (urgency * 2)
@@ -419,6 +440,7 @@ class MyEnvironment(Environment):
             + overdue_bonus
             + workload_bonus
             + hidden_urgency
+            - risk
         )
         return score
 
