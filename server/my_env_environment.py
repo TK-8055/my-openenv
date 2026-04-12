@@ -144,6 +144,10 @@ class MyEnvironment(Environment):
         self.time = 0
         self.time_budget = 0
         self.last_action: int | None = None
+        self.user_profile = {
+            "risk_taking": 0,
+            "consistency": 0,
+        }
         self.reset()
 
     def reset(
@@ -169,6 +173,10 @@ class MyEnvironment(Environment):
         self.time = 0
         self.time_budget = int(scenario["time_budget"])
         self.last_action = None
+        self.user_profile = {
+            "risk_taking": 0,
+            "consistency": 0,
+        }
         return self._build_observation(
             reward=None,
             done=False,
@@ -192,11 +200,7 @@ class MyEnvironment(Environment):
                     self.time_budget = max(
                         0, self.time_budget - chosen_task.estimated_hours
                     )
-                    decision_summary = self._decision_summary(
-                        chosen_task=chosen_task,
-                        reward=reward,
-                        recommended_index=recommended_index,
-                    )
+                    decision_summary = ""
                 else:
                     decision_summary = (
                         f"'{chosen_task.title}' could not be completed because it "
@@ -216,11 +220,23 @@ class MyEnvironment(Environment):
             )
             reward -= self._temporal_penalty()
 
+        if chosen_index != recommended_index:
+            self.user_profile["risk_taking"] += 1
+        if self.last_action is not None and chosen_index == self.last_action:
+            self.user_profile["consistency"] += 1
+
+        reward = self._apply_adaptive_penalties(reward, chosen_index, recommended_index)
+
         if self.last_action is not None and chosen_index == self.last_action:
             reward -= 0.2
             decision_summary += " Repeating the same action reduced reward."
 
         reward = self._clamp_reward(reward)
+        decision_summary = self._build_summary(
+            chosen=chosen_index,
+            best=recommended_index,
+            reward=reward,
+        )
         self.last_action = chosen_index
         self.time += 1
         done = (
@@ -270,6 +286,7 @@ class MyEnvironment(Environment):
                 "time_budget": self.time_budget,
                 "completed_tasks": sum(1 for task in self.tasks if task.done),
                 "deadline_pressure": [max(0, task.deadline - self.time) for task in self.tasks],
+                "user_profile": dict(self.user_profile),
                 "comparison": {
                     "chosen": chosen_index if chosen_index is not None else -1,
                     "recommended": recommended_action,
@@ -325,38 +342,29 @@ class MyEnvironment(Environment):
 
         return reward
 
-    def _decision_summary(
-        self, chosen_task: Task, reward: float, recommended_index: int
-    ) -> str:
-        context_match = chosen_task.category == self.focus_category
-        if reward == 1.0:
-            return (
-                f"Chose '{chosen_task.title}' because it best supports the "
-                f"'{self.objective}' objective, balancing priority "
-                f"{chosen_task.priority}, deadline {chosen_task.deadline}, and "
-                f"{chosen_task.estimated_hours} study hours."
-            )
-        if reward >= 0.5:
-            return (
-                f"Chose '{chosen_task.title}' because it was a reasonable option in "
-                f"the {self.context} scenario, but a better tradeoff between urgency "
-                f"and workload was still available."
-            )
-        best_title = (
-            self.tasks[recommended_index].title
-            if recommended_index < len(self.tasks)
-            else "skip"
-        )
-        if context_match:
-            return (
-                f"Chose '{chosen_task.title}' because it matches the focus area, "
-                f"but '{best_title}' had the stronger deadline or workload fit for "
-                f"this step."
-            )
+    def _build_summary(self, chosen: int, best: int, reward: float) -> str:
         return (
-            f"Chose '{chosen_task.title}', but '{best_title}' was the safer study "
-            f"choice because it delivered more value before the next deadline."
+            f"Chosen: {chosen}, Best: {best}, Context: {self.context}, "
+            f"Time: {self.time}, Reward: {round(reward, 2)}. "
+            "Decision based on priority, urgency, and behavioral pattern."
         )
+
+    def _apply_adaptive_penalties(self, reward: float, chosen: int, best: int) -> float:
+        # Pressure increases as the horizon shrinks; late mistakes are costlier.
+        pressure = self.time / self.MAX_TIME
+        if chosen != best:
+            reward -= pressure * 0.3
+
+        # Adaptive behavior model.
+        if self.user_profile["risk_taking"] > 2:
+            reward -= 0.2
+        if self.user_profile["consistency"] > 1 and chosen == best:
+            reward += 0.1
+
+        # Critical failure penalty for unresolved missed deadlines.
+        if any(task.deadline < self.time and not task.done for task in self.tasks):
+            reward -= 0.5
+        return reward
 
     def _can_finish(self, task: Task) -> bool:
         return task.estimated_hours <= self.time_budget
