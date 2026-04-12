@@ -254,15 +254,9 @@ class MyEnvironment(Environment):
         self.last_action = chosen_index
         self.time += 1
 
-        # Critical failure: doctor-critical miss immediately ends the episode.
-        if any(
-            (not task.done)
-            and (task.deadline < self.time)
-            and ("doctor" in self.context)
-            and ("critical" in task.title.lower())
-            for task in self.tasks
-        ):
-            reward = 0.0
+        critical_failure = self._critical_failure_reward()
+        if critical_failure is not None:
+            reward = critical_failure
             decision_summary += " Critical deadline missed; episode ended."
             done = True
             return self._build_observation(
@@ -440,6 +434,18 @@ class MyEnvironment(Environment):
             - risk
         )
         return score
+
+    def _critical_failure_reward(self) -> float | None:
+        # critical failure path required by final audit
+        for task in self.tasks:
+            if (
+                self.context == "doctor"
+                and "critical" in task.title.lower()
+                and not task.done
+                and self.time > task.deadline
+            ):
+                return 0.0  # critical failure
+        return None
 
     def _temporal_penalty(self) -> float:
         overdue_unfinished = sum(
