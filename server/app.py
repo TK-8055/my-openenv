@@ -1,9 +1,5 @@
 """FastAPI application for the My Env environment."""
 
-from collections import defaultdict, deque
-from time import monotonic
-
-from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 try:
@@ -28,35 +24,6 @@ app = create_app(
     env_name="my_env",
     max_concurrent_envs=1,
 )
-
-RATE_LIMIT_WINDOW_SECONDS = 10.0
-RATE_LIMIT_MAX_REQUESTS = 20
-_request_windows: dict[str, deque[float]] = defaultdict(deque)
-
-
-@app.middleware("http")
-async def limit_reset_and_step_requests(request: Request, call_next):
-    """Apply lightweight per-IP throttling for expensive environment calls."""
-    if request.method == "POST" and request.url.path in {"/reset", "/step"}:
-        now = monotonic()
-        key = request.client.host if request.client else "unknown"
-        window = _request_windows[key]
-
-        while window and now - window[0] > RATE_LIMIT_WINDOW_SECONDS:
-            window.popleft()
-
-        if len(window) >= RATE_LIMIT_MAX_REQUESTS:
-            return JSONResponse(
-                {
-                    "error": "rate_limited",
-                    "message": "Too many requests. Please slow down and try again.",
-                },
-                status_code=429,
-            )
-
-        window.append(now)
-
-    return await call_next(request)
 
 
 def _homepage_html() -> str:

@@ -148,15 +148,14 @@ class MyEnvironment(Environment):
 
     def reset(
         self,
-        seed: int | None = None,
-        episode_id: str | None = None,
-        task: str | None = None,
+        seed=None,
+        episode_id=None,
         **kwargs,
     ) -> MyObservation:
         self._state = State(episode_id=str(uuid4()), step_count=0)
         if episode_id is not None:
             self._state.episode_id = episode_id
-        selected_task = task or kwargs.get("task_name")
+        selected_task = kwargs.get("task") or kwargs.get("task_name")
         if isinstance(selected_task, str) and selected_task in self.TASK_MODES:
             self.task_mode = selected_task
         else:
