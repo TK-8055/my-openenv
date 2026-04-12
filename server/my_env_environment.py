@@ -148,7 +148,7 @@ class MyEnvironment(Environment):
         self.time = 0
         self.time_budget = 0
         self.last_action: int | None = None
-        self.hidden_urgency: dict[int, str] = {}
+        self.true_urgency: dict[int, str] = {}
         self.hidden_risk: dict[int, int] = {}
         self.user_profile = {
             "risk_taking": 0,
@@ -178,7 +178,7 @@ class MyEnvironment(Environment):
         self.tasks = [Task(**task_data) for task_data in scenario["tasks"]]  # type: ignore[arg-type]
         rng = Random(seed) if seed is not None else Random()
         levels = ["low", "medium", "high"]
-        self.hidden_urgency = {
+        self.true_urgency = {
             index: rng.choice(levels) for index in range(len(self.tasks))
         }
         self.hidden_risk = {
@@ -254,15 +254,12 @@ class MyEnvironment(Environment):
         self.last_action = chosen_index
         self.time += 1
 
-        # Critical failure: missing high-stakes deadlines can immediately end the episode.
+        # Critical failure: doctor-critical miss immediately ends the episode.
         if any(
             (not task.done)
             and (task.deadline < self.time)
-            and (
-                ("critical" in task.title.lower())
-                or ("capstone" in task.title.lower())
-                or ("final exam" in task.title.lower())
-            )
+            and ("doctor" in self.context)
+            and ("critical" in task.title.lower())
             for task in self.tasks
         ):
             reward = 0.0
@@ -430,7 +427,7 @@ class MyEnvironment(Environment):
         category_bonus = 4 if task.category == self.focus_category else 0
         overdue_bonus = 3 if self.time >= task.deadline else 0
         workload_bonus = max(0, 3 - task.estimated_hours)
-        hidden_label = self.hidden_urgency.get(index, "low")
+        hidden_label = self.true_urgency.get(index, "low")
         hidden_urgency = URGENCY_MAP.get(hidden_label, 1)
         risk = self.hidden_risk.get(index, 0)
         score = (
