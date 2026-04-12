@@ -214,6 +214,7 @@ class MyEnvironment(Environment):
                 if recommended_index == 3
                 else "Skipping was not optimal because unfinished tasks still remain."
             )
+            reward -= self._temporal_penalty()
 
         if self.last_action is not None and chosen_index == self.last_action:
             reward -= 0.2
@@ -303,20 +304,24 @@ class MyEnvironment(Environment):
         if not self._can_finish(chosen_task):
             return 0.0
 
-        reward = 0.4
-        reward += 0.2 * (chosen_task.priority / 3)
-
-        deadline_gap = max(0, chosen_task.deadline - self.time)
-        urgency = max(0.0, 0.25 - (0.08 * deadline_gap))
-        reward += urgency
-
-        if chosen_task.category == self.focus_category:
-            reward += 0.05
-
+        # Base reward: best choice gets full credit, other valid tasks get partial credit.
         if chosen_index == recommended_index:
-            reward += 0.2
+            reward = 1.0
         else:
-            reward -= 0.15
+            reward = 0.55
+
+        # Context dominance: strongly prefer scenario-aligned task categories.
+        if chosen_task.category == self.focus_category:
+            reward += 0.15
+        elif chosen_index != recommended_index:
+            reward -= 0.1
+
+        # Urgency pressure: as deadlines approach, selecting late tasks is rewarded less unless optimal.
+        overdue_turns = max(0, self.time - chosen_task.deadline)
+        reward -= min(0.3, overdue_turns * 0.08)
+
+        # Temporal penalty: each overdue unfinished task increases opportunity-cost penalty.
+        reward -= self._temporal_penalty()
 
         return reward
 
@@ -360,11 +365,27 @@ class MyEnvironment(Environment):
         return round(max(0.0, min(1.0, reward)), 2)
 
     def _task_score(self, task: Task) -> int:
-        urgency = max(0, 4 - max(0, task.deadline - self.time))
-        category_bonus = 2 if task.category == self.focus_category else 0
+        # Strong context dominance + deadline pressure + feasibility.
+        urgency = max(0, 5 - max(0, task.deadline - self.time))
+        category_bonus = 4 if task.category == self.focus_category else 0
+        overdue_bonus = 3 if self.time >= task.deadline else 0
         workload_bonus = max(0, 3 - task.estimated_hours)
-        score = (task.priority * 3) + (urgency * 2) + category_bonus + workload_bonus
+        score = (
+            (task.priority * 2)
+            + (urgency * 2)
+            + category_bonus
+            + overdue_bonus
+            + workload_bonus
+        )
         return score
+
+    def _temporal_penalty(self) -> float:
+        overdue_unfinished = sum(
+            1
+            for task in self.tasks
+            if not task.done and self.time > task.deadline
+        )
+        return min(0.35, overdue_unfinished * 0.1)
 
     def _conflict_level(self) -> int:
         overdue_risk = sum(1 for task in self.tasks if not task.done and task.deadline <= 2)
