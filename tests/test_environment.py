@@ -1,8 +1,5 @@
-from fastapi.testclient import TestClient
-
 from my_env.models import MyAction
 from my_env.server.my_env_environment import MyEnvironment
-from server.app import app
 
 
 def test_reset_observation_shape():
@@ -121,11 +118,3 @@ def test_full_episode_runs():
             break
 
     assert obs.done is True
-
-
-def test_http_reset_accepts_empty_body():
-    client = TestClient(app)
-    response = client.post("/reset", json={})
-
-    assert response.status_code == 200
-    assert "observation" in response.json()

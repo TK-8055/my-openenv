@@ -1,7 +1,12 @@
 README.md
+__init__.py
+client.py
+models.py
 pyproject.toml
 ./__init__.py
 ./client.py
+./graders.py
+./inference.py
 ./models.py
 openenv_my_env.egg-info/PKG-INFO
 openenv_my_env.egg-info/SOURCES.txt
@@ -12,3 +17,5 @@ openenv_my_env.egg-info/top_level.txt
 server/__init__.py
 server/app.py
 server/my_env_environment.py
+tests/test_environment.py
+tests/test_graders.py
