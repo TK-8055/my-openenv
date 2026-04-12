@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import re
 from typing import List, Optional
 
 from openai import OpenAI
@@ -18,8 +17,6 @@ except ImportError:
     from graders import GraderManager
 
 
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 BENCHMARK = os.getenv("BENCHMARK", "my_env")
@@ -27,6 +24,11 @@ TASKS = ["task-scheduling", "task-priority", "task-deadline"]
 MAX_STEPS = 10
 SUCCESS_SCORE_THRESHOLD = 0.5
 PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
+
+client = OpenAI(
+    api_key=os.environ["API_KEY"],
+    base_url=os.environ["API_BASE_URL"],
+)
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -82,14 +84,6 @@ def build_prompt(observation) -> str:
     )
 
 
-def create_openai_client() -> OpenAI:
-    if not API_KEY:
-        raise RuntimeError("Missing API_KEY or HF_TOKEN")
-    if not API_BASE_URL:
-        raise RuntimeError("Missing API_BASE_URL")
-    return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
-
 async def create_env():
     if LOCAL_IMAGE_NAME:
         return await MyEnv.from_docker_image(LOCAL_IMAGE_NAME)
@@ -110,28 +104,27 @@ def smoke_test_llm(client: OpenAI) -> None:
     )
 
 
-def get_model_action(client: OpenAI, observation) -> int:
-    prompt = build_prompt(observation)
-    completion = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a careful student-planning assistant. Return exactly "
-                    "one integer between 0 and 3 and nothing else."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=5,
-    )
+def choose_action(client: OpenAI, state) -> int:
+    try:
+        prompt = (
+            "You are a task scheduler AI.\n\n"
+            f"State:\n{build_prompt(state)}\n\n"
+            "Choose best task index (0,1,2) or 3 to skip.\n"
+            "Return ONLY a number."
+        )
 
-    text = (completion.choices[0].message.content or "").strip()
-    match = re.search(r"\b([0-3])\b", text)
-    if match:
-        return int(match.group(1))
-    return int(observation.recommended_action)
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+
+        action = int((response.choices[0].message.content or "").strip())
+        if action not in [0, 1, 2, 3]:
+            return 3
+        return action
+    except Exception:
+        return 3
 
 
 def strict_score(value: float) -> float:
@@ -163,7 +156,7 @@ async def run_task(client: OpenAI, env, grader_manager: GraderManager, task_name
             done = bool(result.done)
 
             try:
-                action_value = get_model_action(client, result.observation)
+                action_value = choose_action(client, result.observation)
                 action_str = str(action_value)
                 result = await env.step(MyAction(action=action_value))
                 reward = float(result.reward or 0.0)
@@ -199,17 +192,17 @@ async def run_task(client: OpenAI, env, grader_manager: GraderManager, task_name
 
 
 async def main() -> None:
-    client = None
+    llm_client = None
     env = None
     grader_manager = GraderManager()
 
     try:
-        client = create_openai_client()
-        smoke_test_llm(client)
+        llm_client = client
+        smoke_test_llm(llm_client)
         env = await create_env()
 
         for index, task_name in enumerate(TASKS, start=1):
-            await run_task(client, env, grader_manager, task_name, index)
+            await run_task(llm_client, env, grader_manager, task_name, index)
     except Exception:
         for task_name in TASKS:
             log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
