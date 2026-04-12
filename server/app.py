@@ -565,19 +565,12 @@ def _homepage_html() -> str:
           }
           body.seed = seedValue;
         }
-        const selected = encodeURIComponent(difficultySel.value);
-        const payload = await callApi(
-          `/reset?task=${selected}&task_name=${selected}`,
-          body
-        );
+        body.task = difficultySel.value;
+        body.task_name = difficultySel.value;
+        const payload = await callApi("/reset", body);
         const { observation } = parsePayload(payload);
         if (observation.task_mode !== difficultySel.value) {
-          state.pendingSelection = true;
-          state.done = true;
-          setLoading(false);
-          scenarioStatus.textContent = "Scenario mismatch detected. Please click Start Episode again.";
-          logBox.textContent = `Mismatch detected: selected=${difficultySel.value}, loaded=${observation.task_mode || "unknown"}`;
-          return;
+          scenarioStatus.textContent = `Scenario mismatch: selected=${difficultySel.value}, loaded=${observation.task_mode || "unknown"}. Episode still started.`;
         }
         render(payload);
       } catch (err) {
